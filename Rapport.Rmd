@@ -1,0 +1,275 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+```{r}
+library(dplyr)
+library(ggplot2)
+library(xml2)
+library(stringr)
+library(stringi)
+```
+
+
+```{r}
+data = read.csv( file = './data/caracteristics.csv' ,  sep = ',')
+# Get departemental code
+data$dep = round(data$dep / 10)
+# For summerize
+data$Nombre = 1
+# Get departements that has most accidents
+topdep = data %>% group_by(dep) %>% summarise(Total_Accidents = sum(Nombre)) %>% arrange(-Total_Accidents)
+
+head(topdep)
+# Bar plot
+ggplot(data = topdep,aes(x=dep , y = Total_Accidents,fill = Total_Accidents))+
+  scale_fill_gradient(low = "green", high = "red",name = "")+
+  geom_bar(width=0.7, stat = "identity")+
+  labs(y= "Total Accidents", x = "Departmental Zip Code")+
+  scale_x_continuous(breaks=c(1,6,13,33,59,69,75,93,98)) +
+  ggtitle("Total Number of Accidents in France from 2005 to 2016 by Department")
+                          
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+# This dataset can be found in wikipedia
+pop = read.csv( file = './data/pop.csv' ,  sep = '')
+pop$dept = as.numeric(pop$dept)
+
+
+topdep = data %>% group_by(dep) %>% summarise(Total_Accidents = sum(Nombre)) %>% arrange(-Total_Accidents)
+
+# Get the average this time
+topdep2 = data %>% group_by(dep)%>%
+  summarise(Total_Accidents = sum(Nombre))%>%
+  left_join(pop, by = c("dep" = "dept"))%>%
+  na.omit(topdep2)%>%
+  mutate(avg = Total_Accidents / as.numeric(Legalpopulationin2013)  * 1000)%>%
+  arrange(-avg)
+
+head(topdep)
+ggplot(data = topdep2,aes(x=dep , y = as.numeric(avg),fill = as.numeric(avg)))+
+  scale_fill_gradient(low = "green", high = "red",name = "")+
+  geom_bar(width=0.7, stat = "identity")+
+  labs(y= "Accidents per 1000 inhabitants", x = "Departmental Zip Code")+
+  scale_x_continuous(breaks=c(1,6,13,33,59,69,75,93)) +
+  ggtitle("Accidents per 1000 inhabitants in France from 2005 to 2016 by Department")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+
+topdep = data %>% group_by(dep) %>% summarise(tot=sum(Nombre)) %>% arrange(-tot) %>% head(10)
+annee = data %>% group_by(mois, jour) %>% mutate(tot = 31*(mois-1)+jour)
+tendanceMois2 = data %>% group_by(mois, atm) %>% summarise(c=n()) %>% filter(row_number(desc(c))==5)
+ggplot(data= tendanceMois2) + geom_point(aes(x = mois, y=atm))
+
+#Météo Mensuelle
+maData2 = data %>% mutate(Mois = month.name[mois])
+maData2$Month = factor(maData2$Mois, c("January", "February", "March", "April", "Mai", "June", "July", "August", "September", "October", "November", "December"), ordered = TRUE)
+
+trans <- c("ZZT","ZZU","ZZV","ZZW", "aaa")
+names(trans) <- c(3:7)
+#Extreme weather occurrences by month
+ggplot(data= subset(maData2, !is.na(Month)), aes(x = Month, y=atm,fill = Mois))+
+  geom_violin() +
+  theme(legend.title = element_blank()) +
+  ggtitle("Extreme weather occurrences by month")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  scale_y_continuous(name="Weather", limits=c(3, 7),labels=c("Heavy rain", "Snow - hail", "Fog - smoke", "Strong wind - storm", "Dazzling weather"))
+```
+```{r}
+topMonth = data %>% group_by(mois,an) %>% 
+  summarise(accidents_per_month = sum(Nombre)) 
+
+# Chenge the XX codage of year to XXXX
+fun_year <- function(an) {
+ifelse(an > 9, return ("20"), return ("200"))
+}
+# Vectorize it
+yearer = Vectorize(fun_year)
+
+ggplot(data=topMonth, aes(x=mois, y=accidents_per_month, group = factor(an), colour = factor(an))) + 
+  geom_line(aes(colour=factor(paste(yearer(an),an, sep=""))))+
+  scale_x_continuous( limits=c(1, 12), breaks = c(1:12),name = "Month")+
+  scale_y_continuous(name = "Number of Accidents")+
+  ggtitle("Time Series of Accidents by Month")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  labs(color='Year')
+  
+
+```
+```{r}
+
+# Get the hour from the HrMM  codage
+get_hour <- function(hrmm) {
+return (round(hrmm/100))
+}
+get_hour = Vectorize(get_hour)
+get_hour(data$hrmn)
+
+
+topHour = data %>% 
+  group_by(get_hour(hrmn)) %>% 
+  summarise(accidents_hour = sum(Nombre)) 
+
+# 24h is the same as the 0h
+topHour$`accidents_hour` [topHour$`get_hour(hrmn)` == 0] = 
+  topHour$`accidents_hour` [topHour$`get_hour(hrmn)` == 24] +
+  topHour$`accidents_hour` [topHour$`get_hour(hrmn)` == 0]
+
+topHour <- subset(topHour,`get_hour(hrmn)`!=24 )
+   
+ggplot(data = topHour,aes(x=factor(`get_hour(hrmn)`) , y = as.numeric(`accidents_hour`),fill = as.numeric(`accidents_hour`)))+
+  scale_fill_gradient(low = "green", high = "red",name = "")+
+  scale_y_discrete(name = "Number of Accidents")+
+  ggtitle("Distribution of accidents per Hour in a day")+
+  scale_x_discrete(name = "Hour")+
+  geom_bar(width=0.7, stat = "identity")+
+   coord_polar(theta = "x")
+```
+
+```{r}
+year= data %>% group_by(an) %>%
+  summarise(total = sum(Nombre)) 
+
+ggplot(data=year, aes(x=an, y=total)) + 
+  geom_area()+
+  scale_y_continuous(name = "Number of Accidents")+
+  ggtitle("Total number of Accidents by Year")+
+  scale_x_continuous( limits=c(5, 16), breaks = c(5:16),name = "Year",labels = c(2005:2016))+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+```{r}
+user <- read.csv("./data/users.csv", sep=",")
+user$Nombre = 1
+use_security <- function(an) {
+return (an %% 10)
+}
+use_security = Vectorize(use_security)
+user$used = use_security(user$secu)
+relation_sec_grav = user %>% 
+  group_by(grav,used) %>% 
+  summarise(total = sum(Nombre)) %>%
+  na.omit(relation_sec_grav)
+# remove unspecified data
+relation_sec_grav = subset(relation_sec_grav, relation_sec_grav$used!=0)
+
+Total = relation_sec_grav%>%
+  group_by(used) %>%
+  summarise(total = sum(total))
+
+relation_sec_grav = merge(x=relation_sec_grav,y=Total,by="used") 
+relation_sec_grav = relation_sec_grav %>% 
+  mutate(percent = total.x / total.y) %>%
+  #used as a unique identifier
+  mutate(id = used*10 + grav) %>%
+  arrange(id)
+
+#1 - Unscathed
+#2 - Killed
+#3 - Hospitalized wounded
+#4 - Light injury
+
+ggplot (subset(relation_sec_grav,relation_sec_grav$used != 3), aes(x=id,y =percent, fill=factor(grav))) + 
+  scale_fill_discrete(name = "Severety", labels = c("Unscatched","Killed","Hospitalized","Light injury"))+
+scale_x_continuous( name = "", breaks = c(12.5,22.5), limits=c,labels = c("With security equipements","Without security equipements" ))+
+  scale_y_continuous()+
+  geom_bar(stat="identity", position = position_dodge(width = 2))+
+  ggtitle("")+
+  theme(text = element_text(size = 15)) 
+```
+
+
+
+```{r}
+places <- read.csv("./data/places.csv", sep=",")
+places$Nombre = 1
+
+TypeRoute = places %>% group_by(catr) %>% summarise(totalAcc=sum(Nombre))
+
+ggplot(data= TypeRoute) + geom_bar(stat='identity', aes(x = catr, y = totalAcc, fill=factor(catr)))+
+  scale_x_continuous(  breaks = c(1:6) , labels = c("Highway","National","Departmental","Communal","Private", "Parking lot"), limits=c(0, 7), name = "Types of Road")+
+  scale_y_continuous(name = "Number of Accidents")+
+  ggtitle("Total number of accidents on different types of road")+
+   theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+```{r}
+
+TypePente = places %>% group_by(prof) %>% summarise(totalAcc=sum(Nombre))
+
+ggplot(data= TypePente ) + geom_bar(stat='identity', aes(x = prof, y = totalAcc, fill=factor(prof)))+
+  scale_x_continuous(  breaks = c(1:4) , labels = c("Dish","Slope","Hill Top","Hill Bottom"), limits=c(0, 5), name = "Types of Slope")+
+  scale_y_continuous(name = "Number of Accidents")+
+  ggtitle("Total number of accidents on different types of Slope")+
+   theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+```{r}
+
+#On récupère les infos sur les accidents par département 
+topdep = data %>% group_by(dep) %>% summarise(Total_Accidents = sum(Nombre)) %>% arrange(-Total_Accidents)
+
+
+#On récupère la liste des département avce leur bon nom et numéro
+depXML <- read_xml("https://www.data.gouv.fr/fr/datasets/r/0aa140c9-c8c6-4538-b830-f572f85c53c1")
+tmp <- xml_find_all(depXML, "//dep_name")
+depName <- trimws(xml_text(tmp))
+tmp <- xml_find_all(depXML, "//num_dep")
+depNum <- strtoi(trimws(xml_text(tmp)))
+depNum[8] = 8
+depNum[9] = 9
+depNum[29] = 29
+depNum[30] = 30
+
+result <- data.frame(depNum, depName)
+
+result$depName <- stri_trans_general(result$depName, "Latin-ASCII") %>%
+  str_replace_all("Cote-d'Or", "Cote-Dor") %>%
+  str_replace_all("Cotes-d'Armor", "Cotes-Darmor") %>%
+  str_replace_all("Val-d'Oise", "Val-Doise") %>%
+  str_replace_all("Corse-du-Sud", "Corse du Sud")
+
+
+# On récupère la carte de la France (existe déjà dans ggplot) et on fait les jointures
+map <- map_data("france")
+topdep <- left_join(x = topdep, y = result, by = c("dep"="depNum"))
+result_map <- left_join(x = map[,-6], y = topdep, by = c("region"="depName"))
+
+
+#On prépare un "theme" sans axes apparent pour la map
+map_theme <- theme(title=element_text(),
+                   plot.title=element_text(margin=margin(20,20,20,20), size=18, hjust = 0.5),
+                   axis.text.x=element_blank(),
+                   axis.text.y=element_blank(),
+                   axis.ticks=element_blank(),
+                   axis.title.x=element_blank(),
+                   axis.title.y=element_blank(),
+                   panel.grid.major= element_blank(), 
+                   panel.background= element_blank()) 
+
+#On affiche
+ggplot(result_map, aes(x = long, y = lat, group = group, fill=Total_Accidents, ))+
+  scale_fill_gradient(low = "green", high = "red",name = "Number of accidents") +
+  geom_polygon(colour = "white")+
+  labs(x = "", 
+       y = "", 
+       title = "Accidents by department from 2005 to 2016",)+
+  map_theme
+```
+
